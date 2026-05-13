@@ -129,6 +129,12 @@ export interface AuthStatus {
   reason?: string;
 }
 
+export interface Editor {
+  id: string;
+  label: string;
+  command: string;
+}
+
 export interface WorkerStatus {
   repoId: string;
   busy: boolean;
