@@ -17,8 +17,6 @@ test("phase 10: full lifecycle — add repo, create ticket, run, review, merge",
   const repoPath = makeTestRepo("smoke");
   try {
     await page.goto("/");
-    // Auth banner reflects no creds in test env.
-    await expect(page.getByTestId("auth-banner")).toBeVisible();
 
     // Add the repo via the dialog.
     await page.getByTestId("add-repo-button").click();

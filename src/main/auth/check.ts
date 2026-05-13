@@ -15,11 +15,40 @@ export function setAuthOverride(value: AuthStatus | null) {
 
 export function getAuthStatus(): AuthStatus {
   if (override) return override;
+
+  // 1) Explicit env vars.
   if (Bun.env.ANTHROPIC_API_KEY && Bun.env.ANTHROPIC_API_KEY.length > 0) {
     return { ok: true };
   }
-  const credsPath = join(homedir(), ".claude", "credentials.json");
-  if (existsSync(credsPath)) return { ok: true };
+  if (
+    Bun.env.CLAUDE_CODE_OAUTH_TOKEN &&
+    Bun.env.CLAUDE_CODE_OAUTH_TOKEN.length > 0
+  ) {
+    return { ok: true };
+  }
+
+  // 2) Known credential file locations (varies by Claude Code version + OS).
+  const home = homedir();
+  const candidates = [
+    join(home, ".claude", ".credentials.json"),
+    join(home, ".claude", "credentials.json"),
+    join(home, ".claude.json"),
+  ];
+  if (Bun.env.APPDATA) {
+    candidates.push(
+      join(Bun.env.APPDATA, "Claude", "credentials.json"),
+      join(Bun.env.APPDATA, "Claude", ".credentials.json"),
+    );
+  }
+  for (const p of candidates) {
+    if (existsSync(p)) return { ok: true };
+  }
+
+  // 3) If the `claude` binary is on PATH, trust the user — they ran
+  //    `claude login`, and Claude Code may store creds in the OS keychain
+  //    (which is invisible to us from here on Windows / macOS).
+  if (Bun.which("claude")) return { ok: true };
+
   return { ok: false, reason: "no-credentials" };
 }
 
