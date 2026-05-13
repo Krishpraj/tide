@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
 import { register } from "../rpc/handlers";
 import { reposDao } from "./dao";
@@ -17,6 +18,17 @@ function repoStoreRoot(): string {
   return Bun.env.TIDE_DATA_DIR
     ? join(resolve(Bun.env.TIDE_DATA_DIR), "repos")
     : resolve(process.cwd(), "data", "repos");
+}
+
+function uniqueDest(name: string): string {
+  const root = repoStoreRoot();
+  let candidate = join(root, slugify(name));
+  let i = 2;
+  while (existsSync(candidate)) {
+    candidate = join(root, `${slugify(name)}-${i}`);
+    i++;
+  }
+  return candidate;
 }
 
 register("listRepos", async (input) => {
@@ -46,8 +58,8 @@ register("addRepoLocal", async (input) => {
 register("addRepoClone", async (input) => {
   const i = input as { url: string; name?: string; projectId: string | null };
   const name = (i.name ?? guessRepoName(i.url)).trim() || "repo";
-  const dest = join(repoStoreRoot(), slugify(name));
   await mkdir(repoStoreRoot(), { recursive: true });
+  const dest = uniqueDest(name);
   await cloneRepo({ url: i.url, dest });
   const base = await detectBaseBranch(dest);
   const repo = reposDao.insert({
