@@ -1,46 +1,36 @@
-import { useEffect, useState } from "react";
-import { rpc } from "./rpc";
+import { useEffect } from "react";
+import { useStore } from "./store";
 import { AuthBanner } from "./components/AuthBanner";
+import { Sidebar } from "./components/Sidebar";
 
 export function App() {
-  const [rpcOk, setRpcOk] = useState<"pending" | "ok" | "fail">("pending");
-  const [version, setVersion] = useState<string | null>(null);
+  const bootstrap = useStore((s) => s.bootstrap);
+  const bootstrapped = useStore((s) => s.bootstrapped);
 
   useEffect(() => {
-    let cancelled = false;
-    rpc
-      .health()
-      .then((r) => {
-        if (!cancelled) {
-          setRpcOk("ok");
-          setVersion(r.version);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setRpcOk("fail");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    bootstrap();
+  }, [bootstrap]);
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="h-screen flex flex-col bg-background text-foreground">
       <AuthBanner />
-      <div className="flex-1 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <h1 className="text-4xl font-semibold tracking-tight">Tide</h1>
-          <p
-            className="text-sm text-muted-foreground"
-            data-testid="rpc-status"
-          >
-            {rpcOk === "pending"
-              ? "RPC: connecting…"
-              : rpcOk === "ok"
-                ? `RPC: ok · v${version}`
-                : "RPC: failed"}
-          </p>
-        </div>
+      <div className="flex-1 flex min-h-0">
+        <Sidebar />
+        <main className="flex-1 flex flex-col">
+          <div className="flex-1 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <h1 className="text-3xl font-semibold tracking-tight">Tide</h1>
+              <p
+                className="text-xs text-muted-foreground"
+                data-testid="rpc-status"
+              >
+                {bootstrapped
+                  ? "RPC: ok · v0.1.0"
+                  : "RPC: connecting…"}
+              </p>
+            </div>
+          </div>
+        </main>
       </div>
     </div>
   );
