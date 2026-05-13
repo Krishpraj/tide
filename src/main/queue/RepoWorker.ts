@@ -152,6 +152,33 @@ export class RepoWorker {
 
     try {
       if (!isIterate) {
+        // If the working tree is dirty, auto-stash so we don't lose the user's
+        // WIP. They can recover it later with `git stash pop` on the original
+        // branch; we notify them so it's not surprising.
+        const { isDirty, runGit } = await import("../git/ops");
+        if (await isDirty(repo.path)) {
+          const stashLabel = `tide:${t.id}`;
+          try {
+            await runGit(
+              ["stash", "push", "--include-untracked", "-m", stashLabel],
+              { cwd: repo.path },
+            );
+            eventsDao.insert({
+              ticketId: t.id,
+              kind: "git",
+              payload: { action: "auto_stash", label: stashLabel },
+            });
+            const n = notificationsDao.insert({
+              ticketId: t.id,
+              kind: "auto_stashed",
+              title: `Auto-stashed WIP in ${repo.name}`,
+              body: `Run \`git stash pop\` in the repo to restore (label: ${stashLabel}).`,
+            });
+            emit("notificationCreated", { notification: n });
+          } catch (err) {
+            return this.markFailed(t, "auto_stash", err);
+          }
+        }
         try {
           await checkoutBase(repo.path, repo.baseBranch);
         } catch (err) {

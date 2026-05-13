@@ -73,14 +73,14 @@ test("phase 9: failed tickets show a Restart action that re-enqueues", async ({
   }
 });
 
-test("phase 9: dirty working tree fails the ticket with a checkout_base error", async ({
+test("phase 9: dirty working tree triggers auto-stash and ticket completes", async ({
   page,
 }) => {
   const repoPath = makeTestRepo("beta");
   try {
     // Make the repo dirty before assigning the ticket.
     const { writeFileSync } = await import("node:fs");
-    writeFileSync(`${repoPath}/dirty.txt`, "dirty");
+    writeFileSync(`${repoPath}/dirty.txt`, "dirty WIP");
 
     const repo = await rpc<{ id: string }>(page, "addRepoLocal", {
       path: repoPath,
@@ -98,14 +98,27 @@ test("phase 9: dirty working tree fails the ticket with a checkout_base error", 
       status: "backlog",
     });
     await rpc(page, "assignTicket", { ticketId: t.id, repoId: repo.id });
-    await waitForStatus(page, t.id, "failed");
+    await waitForStatus(page, t.id, "review");
 
-    const events = await rpc<{ kind: string; payload: unknown }[]>(
+    // An auto_stash git event should have been recorded.
+    const events = await rpc<{ kind: string; payload: { action?: string } }[]>(
       page,
       "getTicketEvents",
       t.id,
     );
-    expect(events.some((e) => e.kind === "error")).toBe(true);
+    expect(
+      events.some(
+        (e) => e.kind === "git" && e.payload?.action === "auto_stash",
+      ),
+    ).toBe(true);
+
+    // And a corresponding notification.
+    const notifs = await rpc<{ kind: string }[]>(
+      page,
+      "listNotifications",
+      null,
+    );
+    expect(notifs.some((n) => n.kind === "auto_stashed")).toBe(true);
   } finally {
     removeTestRepo(repoPath);
   }

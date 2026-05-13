@@ -39,6 +39,9 @@ export const useStore = create<TideState>((set, get) => ({
 
   async bootstrap() {
     if (get().bootstrapped) return;
+    // Flip the flag *before* any awaits so concurrent StrictMode invocations
+    // don't both pass the guard and double-register event handlers.
+    set({ bootstrapped: true });
     const projects = await rpc.listProjects();
     let current = get().currentProjectId;
     if (!current && projects.length > 0) current = projects[0]!.id;
@@ -71,7 +74,6 @@ export const useStore = create<TideState>((set, get) => ({
       get().refreshTickets(),
       get().refreshNotifications(),
     ]);
-    set({ bootstrapped: true });
   },
 
   async refreshProjects() {
