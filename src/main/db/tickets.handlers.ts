@@ -1,6 +1,7 @@
 import { register } from "../rpc/handlers";
 import { ticketsDao, labelsDao } from "./dao";
 import { emit } from "../rpc/events";
+import { enqueueTicket, notifyAllUnblocked } from "../queue/WorkerPool";
 import type {
   Estimate,
   Priority,
@@ -68,6 +69,12 @@ register("assignTicket", async (input) => {
   const t = ticketsDao.update(i.ticketId, { repoId: i.repoId });
   const full = attachLabels(t);
   emit("ticketUpdated", { ticket: full });
+  if (i.repoId) {
+    // Tickets default to backlog state; bump to queued and enqueue.
+    if (full.status === "triage" || full.status === "backlog") {
+      enqueueTicket(i.repoId, full.id);
+    }
+  }
   return full;
 });
 
@@ -76,6 +83,7 @@ register("setStatus", async (input) => {
   const t = ticketsDao.update(i.ticketId, { status: i.status });
   const full = attachLabels(t);
   emit("ticketUpdated", { ticket: full });
+  if (i.status === "done" || i.status === "discarded") notifyAllUnblocked();
   return full;
 });
 

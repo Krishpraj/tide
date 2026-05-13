@@ -25,6 +25,7 @@ export default defineConfig({
       env: {
         TIDE_DATA_DIR: "./data/test",
         TIDE_DEBUG_RPC: "1",
+        TIDE_RUNNER: "stub",
       },
     },
     {
