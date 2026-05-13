@@ -109,6 +109,18 @@ register("iterateTicket", async (input) => {
   getWorker(t.repoId).enqueue(t.id);
 });
 
+register("restartTicket", async (ticketId) => {
+  const t = ticketsDao.get(ticketId as string);
+  if (!t || !t.repoId) throw new Error("ticket has no repo");
+  // Reset branch info; the worker will create a fresh branch.
+  const updated = ticketsDao.update(t.id, {
+    status: "queued",
+    branchName: null,
+  });
+  emit("ticketUpdated", { ticket: ticketsDao.withLabels(updated) });
+  getWorker(t.repoId).enqueue(t.id);
+});
+
 register("commitLocalEdits", async (input) => {
   const i = input as { ticketId: string; message: string };
   const t = ticketsDao.get(i.ticketId);

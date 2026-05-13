@@ -284,6 +284,8 @@ export interface RpcMethods {
   // editor
   listEditors(): Promise<{ id: string; label: string; command: string }[]>;
   openInEditor(input: { ticketId: string; editorId: string }): Promise<void>;
+  // restart failed tickets
+  restartTicket(id: string): Promise<void>;
   // debug (dev only)
   runGit(input: { repoId: string; args: string[] }): Promise<{
     stdout: string;

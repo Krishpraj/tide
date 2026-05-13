@@ -13,6 +13,39 @@ if (Bun.env.TIDE_DEBUG_RPC === "1") {
     setAuthOverride(v ?? null);
   });
 
+  // Simulate an app restart for tests: replays the boot-recovery logic
+  // (marks in_progress → failed and re-enqueues queued tickets).
+  register("__simulateRestart", async () => {
+    const { startWorkers } = await import("../queue/WorkerPool");
+    startWorkers();
+  });
+
+  // Fire one snooze tick on demand (test fast-forward).
+  register("__tickSnooze", async () => {
+    const { notificationsDao, ticketsDao } = await import("../db/dao");
+    const { emit } = await import("../rpc/events");
+    const { getDb } = await import("../db/client");
+    const now = Date.now();
+    const due = getDb()
+      .query<{ id: string }, [number]>(
+        "SELECT id FROM tickets WHERE status = 'snoozed' AND snooze_until IS NOT NULL AND snooze_until <= ?",
+      )
+      .all(now);
+    for (const row of due) {
+      const t = ticketsDao.update(row.id, {
+        status: "triage",
+        snoozeUntil: null,
+      });
+      emit("ticketUpdated", { ticket: ticketsDao.withLabels(t) });
+      const n = notificationsDao.insert({
+        ticketId: row.id,
+        kind: "snooze_expired",
+        title: `Snooze expired: ${t.title}`,
+      });
+      emit("notificationCreated", { notification: n });
+    }
+  });
+
   // Wipe all rows (keeps schema). Reseeds the default project.
   register("__resetDb", async () => {
     const db = getDb();

@@ -197,6 +197,17 @@ function CardActions({ ticket }: { ticket: Ticket }) {
             })}
           </>
         )}
+        {ticket.status === "failed" && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              data-testid="ticket-menu-restart"
+              onSelect={() => rpc.restartTicket(ticket.id)}
+            >
+              Restart
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem
           data-testid="ticket-menu-copy-branch"
