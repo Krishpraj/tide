@@ -38,8 +38,17 @@ export function BoardToolbar({
   onSort: (s: SortBy) => void;
   onFilter: (f: BoardFilters) => void;
 }) {
-  const repos = useStore((s) => s.repos);
-  const labels = useStore((s) => s.labels);
+  const allRepos = useStore((s) => s.repos);
+  const allLabels = useStore((s) => s.labels);
+  const currentProjectId = useStore((s) => s.currentProjectId);
+  const repos = currentProjectId
+    ? allRepos.filter((r) => r.projectId === currentProjectId)
+    : allRepos;
+  const labels = currentProjectId
+    ? allLabels.filter(
+        (l) => l.projectId === currentProjectId || l.projectId === null,
+      )
+    : allLabels;
   const [saveOpen, setSaveOpen] = useState(false);
   const [viewName, setViewName] = useState("");
 

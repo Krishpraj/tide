@@ -1,11 +1,14 @@
 import { useMemo } from "react";
 import { Layout, X } from "lucide-react";
-import { useStore } from "../store";
+import { useStore, ticketInProject } from "../store";
 import { useUiStore } from "../uistore";
 import { StatusIcon } from "../lib/status";
+import { NotificationBell } from "./NotificationBell";
 
 export function TopTabs() {
   const tickets = useStore((s) => s.tickets);
+  const repos = useStore((s) => s.repos);
+  const currentProjectId = useStore((s) => s.currentProjectId);
   const openTicketId = useUiStore((s) => s.openTicketId);
   const openTicket = useUiStore((s) => s.openTicket);
 
@@ -13,11 +16,12 @@ export function TopTabs() {
     () =>
       tickets.filter(
         (t) =>
-          t.status === "in_progress" ||
-          t.status === "review" ||
-          t.status === "canceled",
+          (t.status === "in_progress" ||
+            t.status === "review" ||
+            t.status === "canceled") &&
+          ticketInProject(t, repos, currentProjectId),
       ),
-    [tickets],
+    [tickets, repos, currentProjectId],
   );
 
   return (
@@ -46,6 +50,9 @@ export function TopTabs() {
           <span className="max-w-[180px] truncate">{t.title}</span>
         </TabButton>
       ))}
+      <div className="ml-auto flex items-center pl-2">
+        <NotificationBell />
+      </div>
     </div>
   );
 }

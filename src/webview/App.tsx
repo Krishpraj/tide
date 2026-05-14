@@ -11,7 +11,6 @@ import { CommandPalette } from "./components/CommandPalette";
 import { QuickSwitcher } from "./components/QuickSwitcher";
 import { ShortcutsCheatsheet } from "./components/ShortcutsCheatsheet";
 import { FocusView } from "./components/FocusView";
-import { NotificationBell } from "./components/NotificationBell";
 
 export function App() {
   const bootstrap = useStore((s) => s.bootstrap);
@@ -38,18 +37,6 @@ export function App() {
       <div className="flex-1 flex min-h-0">
         <Sidebar />
         <main className="flex-1 flex flex-col min-w-0">
-          <header className="px-3 py-1.5 border-b border-border flex items-center gap-2">
-            <h1 className="text-sm font-semibold tracking-tight">Tide</h1>
-            <span
-              className="text-xs text-muted-foreground"
-              data-testid="rpc-status"
-            >
-              RPC: ok · v0.1.0
-            </span>
-            <div className="ml-auto flex items-center gap-1">
-              <NotificationBell />
-            </div>
-          </header>
           <TopTabs />
           {openTicketId ? (
             <ReviewPanel ticketId={openTicketId} />

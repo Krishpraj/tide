@@ -1,5 +1,12 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, Folder, GitBranch, Plus, Settings } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  Moon,
+  Plus,
+  Sun,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,10 +15,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { Button } from "./ui/button";
 import { ScrollArea } from "./ui/scroll-area";
 import { Badge } from "./ui/badge";
 import { useStore } from "../store";
+import { useUiStore } from "../uistore";
 import { AddRepoDialog } from "./AddRepoDialog";
 import { NewProjectDialog } from "./NewProjectDialog";
 
@@ -23,6 +30,8 @@ export function Sidebar() {
   const setCurrent = useStore((s) => s.setCurrentProject);
   const repos = useStore((s) => s.repos);
   const workers = useStore((s) => s.workers);
+  const theme = useUiStore((s) => s.theme);
+  const toggleTheme = useUiStore((s) => s.toggleTheme);
 
   const visibleRepos = useMemo(
     () => repos.filter((r) => r.projectId === (current?.id ?? null)),
@@ -31,119 +40,145 @@ export function Sidebar() {
 
   const [addRepoOpen, setAddRepoOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <aside
       data-testid="sidebar"
       className="w-[220px] shrink-0 border-r border-border bg-card flex flex-col"
     >
-      <div className="px-3 py-3 border-b border-border">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              className="w-full justify-between"
-              data-testid="project-switcher"
-            >
-              <span className="flex items-center gap-2 min-w-0">
+      <div className="px-3 pt-3 pb-2 flex items-center gap-2 text-foreground">
+        <TideLogo className="h-5 w-5" />
+        <span
+          data-testid="tide-brand"
+          className="text-sm font-semibold tracking-[0.16em] uppercase"
+        >
+          Tide
+        </span>
+      </div>
+
+      <div className="flex-1 min-h-0 flex flex-col px-2 pt-1">
+        <div className="group/proj flex items-center gap-0.5 rounded-md pr-1 hover:bg-secondary/60">
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            aria-label={collapsed ? "expand project" : "collapse project"}
+            className="rounded p-1 text-muted-foreground hover:text-foreground"
+          >
+            {collapsed ? (
+              <ChevronRight className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5" />
+            )}
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                data-testid="project-switcher"
+                className="flex-1 min-w-0 flex items-center gap-2 px-1 h-7 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm"
+              >
                 <span
                   className="h-2 w-2 rounded-full shrink-0"
-                  style={{ backgroundColor: current?.color ?? "#5E6AD2" }}
+                  style={{
+                    backgroundColor:
+                      current?.color ?? "hsl(var(--muted-foreground))",
+                  }}
                 />
-                <span className="truncate text-sm">
+                <span className="truncate font-medium">
                   {current?.name ?? "No project"}
                 </span>
-              </span>
-              <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            className="w-[200px]"
-            data-testid="project-menu"
-          >
-            <DropdownMenuLabel>Projects</DropdownMenuLabel>
-            {projects.map((p) => (
-              <DropdownMenuItem
-                key={p.id}
-                onSelect={() => setCurrent(p.id)}
-                data-testid={`project-menu-item-${p.name}`}
-              >
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: p.color }}
-                />
-                <span className="truncate">{p.name}</span>
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={() => setNewProjectOpen(true)}
-              data-testid="new-project-menu-item"
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="w-[204px]"
+              data-testid="project-menu"
             >
-              <Plus className="h-3.5 w-3.5" />
-              New project
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      <div className="px-3 py-2 flex items-center justify-between text-[10px] uppercase tracking-wider text-muted-foreground">
-        <span>Repos</span>
-        <button
-          onClick={() => setAddRepoOpen(true)}
-          className="rounded p-0.5 hover:bg-secondary"
-          aria-label="add repo"
-          data-testid="add-repo-button"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      <ScrollArea className="flex-1 px-1.5">
-        <div className="space-y-0.5">
-          {visibleRepos.length === 0 && (
-            <p className="px-2 py-3 text-xs text-muted-foreground">
-              No repos yet. Click + to add one.
-            </p>
-          )}
-          {visibleRepos.map((r) => {
-            const w = workers[r.id];
-            return (
-              <div
-                key={r.id}
-                data-testid={`sidebar-repo-${r.name}`}
-                className="group flex items-center gap-2 rounded px-2 py-1.5 hover:bg-secondary cursor-default"
-              >
-                <Folder className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="flex-1 truncate text-xs">{r.name}</span>
-                {w?.busy && (
+              <DropdownMenuLabel>Projects</DropdownMenuLabel>
+              {projects.map((p) => (
+                <DropdownMenuItem
+                  key={p.id}
+                  onSelect={() => setCurrent(p.id)}
+                  data-testid={`project-menu-item-${p.name}`}
+                >
                   <span
-                    className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"
-                    aria-label="busy"
+                    className="h-2 w-2 rounded-full"
+                    style={{ backgroundColor: p.color }}
                   />
-                )}
-                {w && w.queueLength > 0 && (
-                  <Badge variant="outline" className="text-[10px]">
-                    {w.queueLength}
-                  </Badge>
-                )}
-              </div>
-            );
-          })}
+                  <span className="truncate">{p.name}</span>
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => setNewProjectOpen(true)}
+                data-testid="new-project-menu-item"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New project
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <button
+            type="button"
+            onClick={() => setAddRepoOpen(true)}
+            aria-label="add repo"
+            data-testid="add-repo-button"
+            className="rounded p-1 text-muted-foreground hover:text-foreground opacity-0 group-hover/proj:opacity-100 focus-visible:opacity-100 transition-opacity"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
         </div>
-      </ScrollArea>
 
-      <div className="border-t border-border px-2 py-2 flex items-center justify-between">
-        <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-          <GitBranch className="h-3 w-3" />
-          tide
-        </span>
+        {!collapsed && (
+          <ScrollArea className="flex-1 mt-0.5">
+            <div className="pl-5 pr-1 space-y-px">
+              {visibleRepos.length === 0 && (
+                <p className="px-2 py-2 text-xs text-muted-foreground">
+                  No repos. Click + to add one.
+                </p>
+              )}
+              {visibleRepos.map((r) => {
+                const w = workers[r.id];
+                return (
+                  <div
+                    key={r.id}
+                    data-testid={`sidebar-repo-${r.name}`}
+                    className="group flex items-center gap-2 rounded px-2 py-1 hover:bg-secondary cursor-default"
+                  >
+                    <Folder className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="flex-1 truncate text-xs">{r.name}</span>
+                    {w?.busy && (
+                      <span
+                        className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"
+                        aria-label="busy"
+                      />
+                    )}
+                    {w && w.queueLength > 0 && (
+                      <Badge variant="outline" className="text-[10px]">
+                        {w.queueLength}
+                      </Badge>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </ScrollArea>
+        )}
+      </div>
+
+      <div className="border-t border-border px-2 py-2 flex items-center justify-end">
         <button
-          className="rounded p-1 hover:bg-secondary text-muted-foreground"
-          aria-label="settings"
+          onClick={toggleTheme}
+          className="rounded p-1.5 hover:bg-secondary text-muted-foreground"
+          aria-label="toggle theme"
+          data-testid="theme-toggle"
         >
-          <Settings className="h-3.5 w-3.5" />
+          {theme === "dark" ? (
+            <Sun className="h-3.5 w-3.5" />
+          ) : (
+            <Moon className="h-3.5 w-3.5" />
+          )}
         </button>
       </div>
 
@@ -153,5 +188,32 @@ export function Sidebar() {
         onOpenChange={setNewProjectOpen}
       />
     </aside>
+  );
+}
+
+function TideLogo({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 32 32"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      <path
+        d="M3 12 Q 8 7, 13 12 T 23 12 T 29 12"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path
+        d="M3 20 Q 8 15, 13 20 T 23 20 T 29 20"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeOpacity="0.55"
+        fill="none"
+      />
+    </svg>
   );
 }

@@ -30,7 +30,7 @@ test("phase 3: AuthBanner reflects not-authenticated state", async ({
 test("phase 3: AuthBanner hides when authenticated", async ({ page }) => {
   await setAuth(page, { ok: true });
   await page.goto("/");
-  await expect(page.getByTestId("rpc-status")).toContainText("RPC: ok");
+  await expect(page.getByTestId("sidebar")).toBeVisible();
   await expect(page.getByTestId("auth-banner")).toHaveCount(0);
 });
 

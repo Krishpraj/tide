@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 5173;
+const BRIDGE_PORT = Number(process.env.TIDE_PORT ?? 5734);
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -19,13 +20,14 @@ export default defineConfig({
   webServer: [
     {
       command: "bun run src/main/devbridge.ts",
-      port: 5733,
+      port: BRIDGE_PORT,
       timeout: 30_000,
       reuseExistingServer: !process.env.CI,
       env: {
         TIDE_DATA_DIR: "./data/test",
         TIDE_DEBUG_RPC: "1",
         TIDE_RUNNER: "stub",
+        TIDE_PORT: String(BRIDGE_PORT),
       },
     },
     {
@@ -33,6 +35,7 @@ export default defineConfig({
       port: PORT,
       timeout: 30_000,
       reuseExistingServer: !process.env.CI,
+      env: { TIDE_PORT: String(BRIDGE_PORT) },
     },
   ],
   projects: [

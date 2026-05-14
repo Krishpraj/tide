@@ -103,3 +103,17 @@ export const useStore = create<TideState>((set, get) => ({
     set({ currentProjectId: id });
   },
 }));
+
+/** True if `ticket` belongs to the project that owns `currentProjectId`.
+ *  Orphans (no repo) are kept visible on every project board — they still
+ *  need triage and disappearing them would be confusing. */
+export function ticketInProject(
+  ticket: Ticket,
+  repos: Repo[],
+  currentProjectId: string | null,
+): boolean {
+  if (!currentProjectId) return true;
+  if (!ticket.repoId) return true; // orphan
+  const repo = repos.find((r) => r.id === ticket.repoId);
+  return !repo || repo.projectId === currentProjectId;
+}

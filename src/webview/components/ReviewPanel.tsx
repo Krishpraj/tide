@@ -28,9 +28,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./ui/dialog";
-import { TicketEditor } from "./editor/TicketEditor";
-import { editorToMarkdown } from "../lib/tiptap";
+import { PromptHarness } from "./PromptHarness";
 import { DiffView } from "./DiffView";
+import { LiveStream } from "./LiveStream";
 import { CommentsPanel } from "./CommentsPanel";
 import { StatusIcon, statusLabel } from "../lib/status";
 import type { Editor, Ticket, TicketEvent } from "@shared/types";
@@ -49,7 +49,7 @@ export function ReviewPanel({ ticketId }: { ticketId: string }) {
     { id: string; label: string; command: string }[]
   >([]);
   const [changeMoreOpen, setChangeMoreOpen] = useState(false);
-  const [changeMoreDoc, setChangeMoreDoc] = useState<unknown>(null);
+  const [changeMoreSubmitting, setChangeMoreSubmitting] = useState(false);
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitMessage, setCommitMessage] = useState("");
 
@@ -88,9 +88,7 @@ export function ReviewPanel({ ticketId }: { ticketId: string }) {
     await rpc.cancelTicket(ticketId);
   }
 
-  async function onChangeMore() {
-    if (!changeMoreDoc) return;
-    const md = editorToMarkdown(changeMoreDoc);
+  async function onChangeMore(md: string) {
     if (!md.trim()) return;
     await rpc.iterateTicket({
       ticketId,
@@ -98,7 +96,6 @@ export function ReviewPanel({ ticketId }: { ticketId: string }) {
       instructionsMd: md,
     });
     setChangeMoreOpen(false);
-    setChangeMoreDoc(null);
   }
 
   async function onRefresh() {
@@ -238,43 +235,35 @@ export function ReviewPanel({ ticketId }: { ticketId: string }) {
           </ScrollArea>
         </div>
         <div className="flex-1 min-w-0">
-          <ScrollArea className="h-full">
-            <div className="p-3">
-              <DiffView unifiedDiff={diff} />
-            </div>
-          </ScrollArea>
+          {isInProgress ? (
+            <LiveStream ticketId={ticketId} />
+          ) : (
+            <ScrollArea className="h-full">
+              <div className="p-3">
+                <DiffView unifiedDiff={diff} />
+              </div>
+            </ScrollArea>
+          )}
         </div>
       </div>
 
       {/* Change more */}
-      <Dialog open={changeMoreOpen} onOpenChange={setChangeMoreOpen}>
-        <DialogContent data-testid="change-more-dialog">
-          <DialogHeader>
-            <DialogTitle>Change more</DialogTitle>
-          </DialogHeader>
-          <TicketEditor
-            testid="change-more-editor"
-            placeholder="What else should Claude change?"
-            autofocus
-            onChange={(d) => setChangeMoreDoc(d)}
-          />
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setChangeMoreOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={onChangeMore}
-              data-testid="change-more-submit"
-              disabled={!changeMoreDoc}
-            >
-              Send
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PromptHarness
+        open={changeMoreOpen}
+        onOpenChange={setChangeMoreOpen}
+        mode="iterate"
+        initialRepoId={ticket.repoId}
+        ticketId={ticket.id}
+        submitting={changeMoreSubmitting}
+        onSubmit={async ({ markdown }) => {
+          setChangeMoreSubmitting(true);
+          try {
+            await onChangeMore(markdown);
+          } finally {
+            setChangeMoreSubmitting(false);
+          }
+        }}
+      />
 
       {/* Commit my edits */}
       <Dialog open={commitOpen} onOpenChange={setCommitOpen}>

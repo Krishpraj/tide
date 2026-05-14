@@ -30,12 +30,14 @@ export function TicketCard({
   selected,
   onSelectClick,
   draggable = true,
+  showStatusIcon = false,
 }: {
   ticket: Ticket;
   onOpen?: (id: string) => void;
   selected?: boolean;
   onSelectClick?: (e: React.MouseEvent) => void;
   draggable?: boolean;
+  showStatusIcon?: boolean;
 }) {
   const repo = useStore((s) =>
     ticket.repoId ? s.repos.find((r) => r.id === ticket.repoId) : null,
@@ -61,7 +63,7 @@ export function TicketCard({
         <PriorityIcon value={ticket.priority} className="mt-0.5" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
-            <StatusIcon status={ticket.status} />
+            {showStatusIcon && <StatusIcon status={ticket.status} />}
             <span className="text-[13px] font-medium text-foreground truncate">
               {ticket.title}
             </span>

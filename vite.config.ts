@@ -2,6 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
+const BRIDGE_PORT = Number(process.env.TIDE_PORT ?? 5733);
+
 export default defineConfig({
   root: "src/webview",
   base: "./",
@@ -19,9 +21,9 @@ export default defineConfig({
       clientFiles: ["./main.tsx", "./App.tsx"],
     },
     proxy: {
-      "^/rpc/": "http://localhost:5733",
-      "^/events$": { target: "ws://localhost:5733", ws: true },
-      "^/health$": "http://localhost:5733",
+      "^/rpc/": `http://localhost:${BRIDGE_PORT}`,
+      "^/events$": { target: `ws://localhost:${BRIDGE_PORT}`, ws: true },
+      "^/health$": `http://localhost:${BRIDGE_PORT}`,
     },
   },
   optimizeDeps: {

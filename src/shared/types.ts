@@ -180,6 +180,7 @@ export interface RpcMethods {
     projectId: string | null;
   }): Promise<void>;
   removeRepo(id: string): Promise<void>;
+  pickDirectory(): Promise<{ path: string | null }>;
   // tickets
   listTickets(input?: {
     projectId?: string | null;
@@ -286,6 +287,14 @@ export interface RpcMethods {
   openInEditor(input: { ticketId: string; editorId: string }): Promise<void>;
   // restart failed tickets
   restartTicket(id: string): Promise<void>;
+  // attachments (image paste/drop into TipTap editors)
+  saveAttachment(input: {
+    base64: string;
+    mimeType: string;
+    repoId?: string | null;
+    ticketId?: string | null;
+    filename?: string;
+  }): Promise<{ absolutePath: string; filename: string; bytes: number }>;
   // debug (dev only)
   runGit(input: { repoId: string; args: string[] }): Promise<{
     stdout: string;

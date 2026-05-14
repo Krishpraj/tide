@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Button } from "./ui/button";
+import { FolderOpen } from "lucide-react";
 
 export function AddRepoDialog({
   open,
@@ -28,6 +29,20 @@ export function AddRepoDialog({
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
+
+  async function browse() {
+    setError(null);
+    setPicking(true);
+    try {
+      const res = await rpc.pickDirectory();
+      if (res.path) setPath(res.path);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPicking(false);
+    }
+  }
 
   async function submitLocal() {
     setError(null);
@@ -81,13 +96,26 @@ export function AddRepoDialog({
           <TabsContent value="local" className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="repo-path">Path to existing git repo</Label>
-              <Input
-                id="repo-path"
-                data-testid="repo-path-input"
-                placeholder="C:\\Users\\you\\code\\my-repo"
-                value={path}
-                onChange={(e) => setPath(e.target.value)}
-              />
+              <div className="flex gap-2">
+                <Input
+                  id="repo-path"
+                  data-testid="repo-path-input"
+                  placeholder="C:\\Users\\you\\code\\my-repo"
+                  value={path}
+                  onChange={(e) => setPath(e.target.value)}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={browse}
+                  disabled={picking || busy}
+                  data-testid="repo-path-browse"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  {picking ? "Opening…" : "Browse"}
+                </Button>
+              </div>
             </div>
             {error && (
               <p className="text-xs text-destructive" data-testid="repo-error">

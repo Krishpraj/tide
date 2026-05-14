@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { rpc } from "../rpc";
-import { useStore } from "../store";
+import { useStore, ticketInProject } from "../store";
 import {
   PRIORITY_LABELS,
   STATUS_COLUMNS,
@@ -10,7 +10,9 @@ import {
 import { Badge } from "./ui/badge";
 import { ScrollArea } from "./ui/scroll-area";
 import { TicketCard } from "./TicketCard";
-import { NewTicketInline } from "./NewTicketInline";
+import { PromptHarness } from "./PromptHarness";
+import { Plus } from "lucide-react";
+import { Button } from "./ui/button";
 import {
   BoardToolbar,
   type BoardFilters,
@@ -25,20 +27,44 @@ const PRIORITY_GROUPS: Priority[] = [4, 3, 2, 1, 0];
 
 export function Board() {
   const tickets = useStore((s) => s.tickets);
-  const repos = useStore((s) => s.repos);
+  const allRepos = useStore((s) => s.repos);
   const labels = useStore((s) => s.labels);
+  const currentProjectId = useStore((s) => s.currentProjectId);
   const focusTicketComposerToken = useUiStore(
     (s) => s.focusTicketComposerToken,
   );
+  // The legacy hotkey/menu fires this token to open the composer. Forward
+  // it to the modal. Track the last-seen value with a ref so re-mounting
+  // Board (e.g. after closing a review tab) doesn't replay an old token
+  // and re-open the modal spuriously.
+  const seenComposerToken = useRef(focusTicketComposerToken);
+  useEffect(() => {
+    if (focusTicketComposerToken > seenComposerToken.current) {
+      seenComposerToken.current = focusTicketComposerToken;
+      setNewOpen(true);
+    }
+  }, [focusTicketComposerToken]);
   const selected = useUiStore((s) => s.selectedTickets);
   const setSelected = useUiStore((s) => s.setSelectedTickets);
 
   const [groupBy, setGroupBy] = useState<GroupBy>("status");
   const [sortBy, setSortBy] = useState<SortBy>("priority");
   const [filters, setFilters] = useState<BoardFilters>({});
+  const [newOpen, setNewOpen] = useState(false);
+  const [newSubmitting, setNewSubmitting] = useState(false);
+
+  // Scope the repo list shown in toolbar/grouping to the current project.
+  const repos = useMemo(
+    () =>
+      currentProjectId
+        ? allRepos.filter((r) => r.projectId === currentProjectId)
+        : allRepos,
+    [allRepos, currentProjectId],
+  );
 
   const filtered = useMemo(() => {
     return tickets.filter((t) => {
+      if (!ticketInProject(t, allRepos, currentProjectId)) return false;
       if (filters.status && t.status !== filters.status) return false;
       if (
         filters.priority !== undefined &&
@@ -54,7 +80,7 @@ export function Board() {
         return false;
       return true;
     });
-  }, [tickets, filters]);
+  }, [tickets, filters, allRepos, currentProjectId]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -151,7 +177,19 @@ export function Board() {
               </div>
               {group.key === "triage" && (
                 <div className="px-0.5 pb-2">
-                  <NewTicketInline focusToken={focusTicketComposerToken} />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start gap-1.5"
+                    data-testid="board-new-ticket"
+                    onClick={() => setNewOpen(true)}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span className="text-xs">New ticket</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      C
+                    </span>
+                  </Button>
                 </div>
               )}
               <div className="space-y-1.5 px-0.5">
@@ -162,6 +200,7 @@ export function Board() {
                     selected={selected.includes(t.id)}
                     onSelectClick={(e) => onCardClick(t.id, e)}
                     onOpen={(id) => useUiStore.getState().openTicket(id)}
+                    showStatusIcon={groupBy !== "status"}
                   />
                 ))}
                 {group.tickets.length === 0 && group.key !== "triage" && (
@@ -178,6 +217,27 @@ export function Board() {
       <BulkActionBar
         selected={selected}
         onClear={() => setSelected([])}
+      />
+
+      <PromptHarness
+        open={newOpen}
+        onOpenChange={setNewOpen}
+        mode="new"
+        submitting={newSubmitting}
+        onSubmit={async ({ title, docJson, markdown, repoId: r }) => {
+          setNewSubmitting(true);
+          try {
+            await rpc.createTicket({
+              title,
+              description: JSON.stringify(docJson),
+              descriptionMd: markdown,
+              repoId: r,
+            });
+          } finally {
+            setNewSubmitting(false);
+            setNewOpen(false);
+          }
+        }}
       />
     </div>
   );

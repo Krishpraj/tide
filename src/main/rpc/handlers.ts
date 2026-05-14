@@ -39,7 +39,9 @@ export async function registerHandlers() {
   await import("../db/notifications.handlers");
   await import("../db/settings.handlers");
   await import("../db/events.handlers");
+  await import("../db/attachments.handlers");
   await import("../queue/review.handlers");
   await import("../editor/editor.handlers");
+  await import("../dialog/dialog.handlers");
   await import("../debug/debug.handlers");
 }

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useStore } from "../store";
+import { useStore, ticketInProject } from "../store";
 import { useUiStore } from "../uistore";
 import { TicketCard } from "./TicketCard";
 import {
@@ -13,12 +13,16 @@ export function FocusView() {
   const open = useUiStore((s) => s.focusViewOpen);
   const setOpen = useUiStore((s) => s.setFocusViewOpen);
   const allTickets = useStore((s) => s.tickets);
+  const repos = useStore((s) => s.repos);
+  const currentProjectId = useStore((s) => s.currentProjectId);
   const tickets = useMemo(
     () =>
       allTickets.filter(
-        (t) => t.status === "in_progress" || t.status === "review",
+        (t) =>
+          (t.status === "in_progress" || t.status === "review") &&
+          ticketInProject(t, repos, currentProjectId),
       ),
-    [allTickets],
+    [allTickets, repos, currentProjectId],
   );
 
   return (
@@ -37,7 +41,12 @@ export function FocusView() {
             </p>
           )}
           {tickets.map((t) => (
-            <TicketCard key={t.id} ticket={t} draggable={false} />
+            <TicketCard
+              key={t.id}
+              ticket={t}
+              draggable={false}
+              showStatusIcon
+            />
           ))}
         </div>
       </DialogContent>

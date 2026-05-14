@@ -10,6 +10,7 @@ import {
 } from "../db/dao";
 import { emit } from "../rpc/events";
 import { runForTicket } from "../claude/runner";
+import { surface } from "../claude/surface";
 import { takeIterateOverride } from "./iterateBus";
 import {
   checkoutBase,
@@ -136,6 +137,17 @@ export class RepoWorker {
       ? t.branchName!
       : `tide/${slugify(t.title)}-${ulid().slice(-6).toLowerCase()}`;
 
+    const wtag = `[worker ${this.repoId.slice(-6)}/${t.id.slice(-6)}]`;
+    console.log(
+      wtag,
+      `start ticket "${t.title}" estimate=${t.estimate} mode=${isIterate ? "iterate" : "fresh"} branch=${branchName}`,
+    );
+    surface(
+      t.id,
+      `worker picked up ticket`,
+      `${isIterate ? "iterate" : "fresh"} · branch=${branchName}`,
+    );
+
     // status → in_progress
     let updated = ticketsDao.update(t.id, {
       status: "in_progress",
@@ -158,6 +170,7 @@ export class RepoWorker {
         const { isDirty, runGit } = await import("../git/ops");
         if (await isDirty(repo.path)) {
           const stashLabel = `tide:${t.id}`;
+          surface(t.id, "auto-stashing dirty WIP", stashLabel);
           try {
             await runGit(
               ["stash", "push", "--include-untracked", "-m", stashLabel],
@@ -179,11 +192,13 @@ export class RepoWorker {
             return this.markFailed(t, "auto_stash", err);
           }
         }
+        surface(t.id, `git checkout ${repo.baseBranch}`);
         try {
           await checkoutBase(repo.path, repo.baseBranch);
         } catch (err) {
           return this.markFailed(t, "checkout_base", err);
         }
+        surface(t.id, `git checkout -b ${branchName}`);
         try {
           await createBranch(repo.path, branchName);
         } catch (err) {
@@ -191,6 +206,7 @@ export class RepoWorker {
         }
       } else {
         // Iteration: ensure we're on the existing branch.
+        surface(t.id, `git checkout ${branchName}`, "iteration");
         try {
           await (await import("../git/ops")).runGit(["checkout", branchName], {
             cwd: repo.path,
@@ -200,16 +216,35 @@ export class RepoWorker {
         }
       }
 
+      console.log(wtag, "invoking runner…");
+      surface(t.id, "invoking runner");
       const result = await runForTicket(t, repo, {
         signal: abort.signal,
         resumeSessionId: override?.resumeSessionId ?? null,
         extraPrompt: override?.extra,
         maxTurns: maxTurnsFor(t.estimate),
       });
+      console.log(
+        wtag,
+        `runner returned ok=${result.ok} canceled=${!!result.canceled}${result.error ? ` error=${result.error}` : ""}`,
+      );
+      surface(
+        t.id,
+        `runner returned`,
+        `ok=${result.ok} canceled=${!!result.canceled}${result.error ? ` error=${result.error}` : ""}`,
+        result.ok ? "info" : "error",
+      );
 
-      const commit = await commitAll(repo.path, t.title).catch(() => ({
-        committed: false,
-      }));
+      surface(t.id, "committing changes");
+      const commit = await commitAll(repo.path, t.title).catch((e) => {
+        console.log(wtag, "commitAll threw:", e);
+        return { committed: false };
+      });
+      console.log(wtag, `commitAll committed=${commit.committed}`);
+      surface(
+        t.id,
+        commit.committed ? "commit created" : "no changes to commit",
+      );
 
       if (result.canceled) {
         // If nothing committed, treat as canceled; otherwise drop into review.
@@ -269,6 +304,7 @@ export class RepoWorker {
       : err instanceof Error
         ? err.message
         : String(err);
+    surface(t.id, `failed: ${reason}`, message, "error");
     const updated = ticketsDao.update(t.id, { status: "failed" });
     emit("ticketUpdated", { ticket: ticketsDao.withLabels(updated) });
     eventsDao.insert({
