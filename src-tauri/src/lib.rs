@@ -35,18 +35,25 @@ fn wait_for_port(timeout: Duration) -> bool {
 }
 
 fn resolve_sidecar_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Option<PathBuf> {
-    // Production: tide.exe sits in the resources/ subdir of the install.
+    // Production: tide.exe is bundled under <install>/binaries/tide.exe.
+    // (Tauri preserves the path from `bundle.resources` relative to src-tauri/.)
     if let Ok(res) = app.path().resource_dir() {
-        let p = res.join("tide.exe");
-        if p.exists() {
-            return Some(p);
+        for candidate in [
+            res.join("binaries").join("tide.exe"),
+            res.join("tide.exe"),
+        ] {
+            if candidate.exists() {
+                return Some(candidate);
+            }
         }
     }
-    // Dev fallback: <repo>/dist/tide.exe relative to the workspace root.
+    // Dev fallback: run the unpacked target/release/app.exe against the
+    // sidecar that `bun run build:exe` emits into src-tauri/binaries/.
     if let Ok(cwd) = std::env::current_dir() {
         for candidate in [
-            cwd.join("dist").join("tide.exe"),
-            cwd.join("..").join("dist").join("tide.exe"),
+            cwd.join("src-tauri").join("binaries").join("tide.exe"),
+            cwd.join("binaries").join("tide.exe"),
+            cwd.join("..").join("binaries").join("tide.exe"),
         ] {
             if candidate.exists() {
                 return Some(candidate);
