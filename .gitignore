@@ -13,3 +13,7 @@ coverage/
 .env
 .env.local
 *.tsbuildinfo
+
+# Tauri Rust build artifacts (multi-GB target dir)
+src-tauri/target/
+src-tauri/gen/
