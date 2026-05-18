@@ -84,9 +84,22 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir).ok();
 
+            // The webview bundle is shipped under <resource_dir>/binaries/webview.
+            // Sidecar reads TIDE_WEBVIEW_DIR first, so this works whether the
+            // app is installed (resource_dir = install root) or running from
+            // target/release (resource_dir = target/release).
+            let webview_dir = app
+                .path()
+                .resource_dir()
+                .ok()
+                .map(|r| r.join("binaries").join("webview"));
+
             let mut cmd = Command::new(&exe_path);
             cmd.env("TIDE_PORT", SIDECAR_PORT.to_string())
                 .env("TIDE_DATA_DIR", &data_dir);
+            if let Some(p) = webview_dir.filter(|p| p.exists()) {
+                cmd.env("TIDE_WEBVIEW_DIR", p);
+            }
             #[cfg(windows)]
             {
                 // CREATE_NO_WINDOW so the sidecar doesn't pop a console.
