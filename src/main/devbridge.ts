@@ -6,6 +6,9 @@
 // Playwright drives a real Chromium against the Vite dev server, which proxies
 // /rpc and /events here.
 
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { spawn } from "node:child_process";
 import { registerHandlers, callHandler, hasHandler } from "./rpc/handlers";
 import { registerEventsTransport } from "./rpc/events";
 import { initDb } from "./db/client";
@@ -14,6 +17,86 @@ import { startAuthPolling } from "./auth/check";
 import { startSnoozeTicker } from "./queue/snooze";
 
 const PORT = Number(Bun.env.TIDE_PORT ?? 5733);
+
+// Resolve the prebuilt webview directory. In a `bun --compile` binary the
+// exe is shipped alongside a `webview/` folder; in dev/test the bundle lives
+// at <repo>/dist/webview.
+function resolveWebviewDir(): string | null {
+  const candidates = [
+    Bun.env.TIDE_WEBVIEW_DIR,
+    join(dirname(process.execPath), "webview"),
+    resolve(import.meta.dir, "../../dist/webview"),
+  ].filter((p): p is string => typeof p === "string" && p.length > 0);
+  for (const p of candidates) {
+    if (existsSync(join(p, "index.html"))) return p;
+  }
+  return null;
+}
+const webviewDir = resolveWebviewDir();
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".mjs": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".map": "application/json; charset=utf-8",
+};
+function mimeFor(path: string): string {
+  const dot = path.lastIndexOf(".");
+  const ext = dot >= 0 ? path.slice(dot).toLowerCase() : "";
+  return MIME[ext] ?? "application/octet-stream";
+}
+
+async function serveStatic(pathname: string): Promise<Response | null> {
+  if (!webviewDir) return null;
+  // Map "/" → "/index.html"; resolve and reject any path that escapes webviewDir.
+  const rel = pathname === "/" ? "/index.html" : pathname;
+  const full = resolve(webviewDir, "." + rel);
+  if (!full.startsWith(resolve(webviewDir))) return null;
+  const file = Bun.file(full);
+  if (!(await file.exists())) {
+    // SPA fallback: serve index.html for routes without a file extension so
+    // client-side routing still works after a deep-link refresh.
+    if (!/\.[a-z0-9]+$/i.test(rel)) {
+      const idx = Bun.file(join(webviewDir, "index.html"));
+      if (await idx.exists()) {
+        return new Response(idx, {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
+      }
+    }
+    return null;
+  }
+  return new Response(file, {
+    headers: { "content-type": mimeFor(full) },
+  });
+}
+
+function openBrowser(url: string): void {
+  try {
+    if (process.platform === "win32") {
+      // `start` is a cmd builtin, hence the empty title argument.
+      spawn("cmd", ["/c", "start", "", url], { detached: true, stdio: "ignore" }).unref();
+    } else if (process.platform === "darwin") {
+      spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
+    } else {
+      spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
+    }
+  } catch {
+    // Best-effort — user can always paste the URL manually.
+  }
+}
 
 // Mutable set of WS clients.
 const wsClients = new Set<ServerWebSocket>();
@@ -108,6 +191,12 @@ const server = Bun.serve({
       }
     }
 
+    // Static file serving from the prebuilt webview (production binary).
+    if (req.method === "GET" || req.method === "HEAD") {
+      const r = await serveStatic(url.pathname);
+      if (r) return r;
+    }
+
     return new Response("not found", { status: 404, headers: corsHeaders() });
   },
   websocket: {
@@ -123,7 +212,10 @@ const server = Bun.serve({
   },
 });
 
-console.log(`tide devbridge listening on http://${server.hostname}:${server.port}`);
+const url = `http://${server.hostname}:${server.port}`;
+console.log(`tide devbridge listening on ${url}`);
+if (webviewDir) console.log(`tide serving webview from ${webviewDir}`);
+if (Bun.env.TIDE_OPEN_BROWSER === "1") openBrowser(url);
 
 function corsHeaders(): Record<string, string> {
   return {
