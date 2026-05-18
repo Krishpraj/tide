@@ -1,0 +1,961 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tide — Kanban for AI engineers</title>
+    <meta
+      name="description"
+      content="A Linear-style Kanban desktop app where Claude Code does the implementation. File a ticket, assign it to a tracked git repo, and Tide spawns Claude in a fresh branch."
+    />
+
+    <link rel="preconnect" href="https://rsms.me/" />
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap"
+    />
+
+    <style>
+      /* ─── Tide tokens (mirrors src/webview/styles/globals.css) ──────── */
+      :root {
+        --bg: #f7f6f2;
+        --ink: #1f2937;
+        --tide: #4a7c8a;
+        --tide-deep: #1a3a4a;
+        --tide-fog: #c8d4d6;
+        --tide-sand: #c89b6a;
+        --tide-sea: #6aa890;
+        --border: #d6dde0;
+        --muted: #5b6772;
+        --paper: #ffffff;
+        --radius: 9px;
+
+        /* Grid line colors — quiet, almost-paper texture. */
+        --grid-strong: rgba(20, 40, 60, 0.05);
+        --grid-soft: rgba(20, 40, 60, 0.03);
+
+        --shadow-card:
+          inset 0 1px 0 rgba(255, 255, 255, 0.55),
+          0 2px 6px rgba(20, 40, 60, 0.07),
+          0 0 0 1px rgba(0, 0, 0, 0.04);
+        --shadow-lift:
+          inset 0 1px 0 rgba(255, 255, 255, 0.6),
+          0 18px 50px rgba(20, 40, 60, 0.18),
+          0 0 0 1px rgba(0, 0, 0, 0.05);
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Inter", ui-sans-serif, system-ui, -apple-system,
+          "Segoe UI", Roboto, sans-serif;
+        font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+        letter-spacing: -0.005em;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+        overflow-x: hidden;
+      }
+
+      .mono {
+        font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo,
+          Monaco, Consolas, monospace;
+        font-feature-settings: "tnum", "zero", "ss01";
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      /* ─── The grid ────────────────────────────────────────────────────
+         The grid is `position: absolute` *inside* .page (not fixed) so
+         it shares the same width context as .wrap. Both measure off the
+         body's content width (which excludes the scrollbar), so the
+         strong rules sit exactly at .wrap's left/right edges — no more
+         scrollbar drift. */
+      .grid-bg {
+        position: absolute;
+        inset: 0;
+        height: 100%;
+        pointer-events: none;
+        z-index: 2;
+      }
+      .grid-bg .v {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+      }
+      /* Outer faint rules — sit at the midpoint of each gutter. */
+      .v-1 { left:  10%; background: var(--grid-soft);   }
+      .v-5 { right: 10%; background: var(--grid-soft);   }
+      /* Strong rules — exactly at .wrap's left/right edges (.wrap is
+         centered at 60% width, so its edges are at 20% / 80%). */
+      .v-2 { left:  20%; background: var(--grid-strong); }
+      .v-4 { right: 20%; background: var(--grid-strong); }
+
+      /* Ruler-style tick marks in the outer gutters — short horizontal
+         hairlines every 8px running down each side, like the edge ticks
+         in the Zed marketing page. */
+      .grid-bg .ticks {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 14px;
+        background-image: repeating-linear-gradient(
+          to bottom,
+          rgba(20, 40, 60, 0.12) 0,
+          rgba(20, 40, 60, 0.12) 1px,
+          transparent 1px,
+          transparent 9px
+        );
+      }
+      .grid-bg .ticks-left  { left: 0; }
+      .grid-bg .ticks-right { right: 0; }
+
+      /* Secondary, lighter tick column further in. */
+      .grid-bg .ticks-soft {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 8px;
+        background-image: repeating-linear-gradient(
+          to bottom,
+          rgba(20, 40, 60, 0.06) 0,
+          rgba(20, 40, 60, 0.06) 1px,
+          transparent 1px,
+          transparent 14px
+        );
+      }
+      .grid-bg .ticks-soft-left  { left:  calc(10% + 4px); }
+      .grid-bg .ticks-soft-right { right: calc(10% + 4px); }
+
+      /* ─── Per-band background patterns ──────────────────────────────
+         Each band gets a distinct texture so the page reads as a layered
+         document rather than a single flat color. All patterns are very
+         low-contrast (ink at 3–6% alpha) so they don't fight content. */
+      .band {
+        position: relative;
+      }
+      .band > .wrap { position: relative; z-index: 1; }
+
+      /* Hero band: faint concentric "topographic" rings behind the
+         headline, fading out near the edges. */
+      .pattern-topo {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background-image:
+          radial-gradient(
+            circle at 50% 45%,
+            transparent 0,
+            transparent 60px,
+            rgba(20, 40, 60, 0.045) 61px,
+            rgba(20, 40, 60, 0.045) 62px,
+            transparent 63px,
+            transparent 120px,
+            rgba(20, 40, 60, 0.04) 121px,
+            rgba(20, 40, 60, 0.04) 122px,
+            transparent 123px,
+            transparent 180px,
+            rgba(20, 40, 60, 0.035) 181px,
+            rgba(20, 40, 60, 0.035) 182px,
+            transparent 183px,
+            transparent 240px,
+            rgba(20, 40, 60, 0.03) 241px,
+            rgba(20, 40, 60, 0.03) 242px,
+            transparent 243px,
+            transparent 300px,
+            rgba(20, 40, 60, 0.025) 301px,
+            rgba(20, 40, 60, 0.025) 302px,
+            transparent 303px
+          );
+        mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+        -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+      }
+
+      /* Features band: subtle dot grid that suggests "structured rows". */
+      .pattern-dots {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background-color: rgba(20, 40, 60, 0.018);
+        background-image: radial-gradient(
+          circle,
+          rgba(20, 40, 60, 0.08) 1px,
+          transparent 1.4px
+        );
+        background-size: 18px 18px;
+        background-position: 0 0;
+        mask-image: linear-gradient(to bottom, transparent 0, black 20%, black 80%, transparent 100%);
+        -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 20%, black 80%, transparent 100%);
+      }
+
+      /* Preview band: diagonal hatch — like blueprint paper. */
+      .pattern-hatch {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background-image: repeating-linear-gradient(
+          45deg,
+          transparent 0,
+          transparent 12px,
+          rgba(20, 40, 60, 0.025) 12px,
+          rgba(20, 40, 60, 0.025) 13px
+        );
+      }
+
+      /* Signals band: warm sand tint so the closing section feels
+         distinct from the preview band above it. */
+      .pattern-warm {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background:
+          linear-gradient(
+            180deg,
+            rgba(200, 155, 106, 0.03) 0%,
+            rgba(200, 155, 106, 0.05) 100%
+          );
+      }
+
+      /* Footer band: very faint horizontal rules like a legal page. */
+      .pattern-rules {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background-image: repeating-linear-gradient(
+          to bottom,
+          transparent 0,
+          transparent 23px,
+          rgba(20, 40, 60, 0.04) 23px,
+          rgba(20, 40, 60, 0.04) 24px
+        );
+      }
+
+      /* ─── Tide wave animation (hero backdrop) ─────────────────────────
+         Three SVG sine-wave layers stacked at the bottom of the hero,
+         scrolling horizontally at different speeds for parallax. Same
+         color tokens and wave-path style as the in-app Water component
+         (src/webview/components/Water.tsx) so the landing reads as the
+         same product. */
+      /* Wave layer is contained to the content well (.wrap), NOT
+         spanning the full page width. The hero's .wrap is set to
+         position: relative; overflow: hidden so the waves clip cleanly
+         at the strong grid rules on the left/right. */
+      .tide-bg {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        overflow: hidden;
+        border-radius: 0;
+      }
+      /* Strong top fade — covers the entire headline + sub area with
+         pure paper, so text reads on a clean surface. Waves only show
+         in the bottom portion behind/under the CTA buttons. */
+      .tide-bg::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          180deg,
+          var(--bg) 0%,
+          var(--bg) 55%,
+          rgba(247, 246, 242, 0.85) 65%,
+          rgba(247, 246, 242, 0) 78%
+        );
+        pointer-events: none;
+      }
+      .tide-bg .glow {
+        position: absolute;
+        left: 50%;
+        top: 70%;
+        transform: translateX(-50%);
+        width: 90%;
+        height: 50%;
+        border-radius: 50%;
+        background: radial-gradient(
+          closest-side,
+          color-mix(in oklab, #4a7c8a 12%, transparent),
+          transparent 70%
+        );
+        filter: blur(8px);
+      }
+      .tide-bg .surface {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 28%;
+        background: linear-gradient(
+          180deg,
+          transparent 0%,
+          color-mix(in oklab, #4a7c8a 4%, transparent) 28%,
+          color-mix(in oklab, #4a7c8a 8%, transparent) 58%,
+          color-mix(in oklab, #1a3a4a 10%, transparent) 100%
+        );
+      }
+      .tide-bg .wave {
+        position: absolute;
+        left: -50%;
+        width: 200%;
+        height: 70px;
+      }
+      .wave-1 {
+        bottom: 22%;
+        opacity: 0.22;
+        animation: tide-drift 26s linear infinite;
+      }
+      .wave-2 {
+        bottom: 14%;
+        opacity: 0.32;
+        animation: tide-drift 18s linear infinite reverse;
+      }
+      .wave-3 {
+        bottom: 6%;
+        opacity: 0.5;
+        animation: tide-drift 13s linear infinite;
+      }
+      .wave-4 {
+        bottom: 0%;
+        opacity: 0.7;
+        animation: tide-drift 10s linear infinite reverse;
+      }
+      @keyframes tide-drift {
+        from { transform: translateX(0); }
+        to   { transform: translateX(25%); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .tide-bg .wave { animation: none; }
+      }
+
+      /* Hero .wrap clips the wave layer to the content well. */
+      .hero-band .wrap {
+        position: relative;
+        overflow: hidden;
+      }
+
+      /* ─── Page wrapper ──────────────────────────────────────────────
+         .wrap is 60% wide and centered. Its left edge sits exactly at
+         20% of .page, which is where the strong grid rule (.v-2) is
+         positioned — content well and lines stay aligned. */
+      .page {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        max-width: 100%;
+        overflow: hidden;
+      }
+      .wrap {
+        width: 60%;
+        margin: 0 auto;
+        position: relative;
+      }
+
+      /* Horizontal rules are produced by adding a top/bottom border to
+         each band. They extend full-bleed via the band wrapper, not the
+         centered .wrap, so they line up with the body grid. */
+      .band {
+        position: relative;
+        border-bottom: 1px solid var(--grid-strong);
+      }
+      .band-soft {
+        border-bottom: 1px solid var(--grid-soft);
+      }
+
+      /* ─── Top nav ──────────────────────────────────────────────────── */
+      .nav {
+        height: 64px;
+        display: flex;
+        align-items: center;
+        gap: clamp(12px, 2vw, 28px);
+        padding: 0 clamp(16px, 2vw, 28px);
+      }
+      .nav-brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+        font-size: 15px;
+        letter-spacing: -0.01em;
+      }
+      .nav-brand .mark {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        background: linear-gradient(180deg, var(--tide) 0%, var(--tide-deep) 100%);
+        position: relative;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+      }
+      .nav-brand .mark svg {
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        color: rgba(255, 255, 255, 0.9);
+      }
+      .nav-links {
+        display: flex;
+        gap: clamp(10px, 1.6vw, 22px);
+        font-size: 13.5px;
+        color: var(--muted);
+        margin-left: 6px;
+      }
+      .nav-links a:hover { color: var(--ink); }
+      .nav-right {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .search {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 32px;
+        padding: 0 8px 0 10px;
+        background: var(--paper);
+        border-radius: 7px;
+        box-shadow: var(--shadow-card);
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      .kbd {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        height: 20px;
+        padding: 0 6px;
+        border-radius: 4px;
+        background: rgba(20, 40, 60, 0.06);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .kbd-on-primary {
+        background: rgba(255, 255, 255, 0.18);
+        color: rgba(255, 255, 255, 0.92);
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 12px;
+        border-radius: 7px;
+        font-size: 13.5px;
+        font-weight: 500;
+        cursor: pointer;
+        border: 0;
+        transition: transform 100ms ease, box-shadow 150ms ease, background 150ms ease;
+        white-space: nowrap;
+      }
+      .btn-primary {
+        background: linear-gradient(180deg, var(--tide) 0%, #3f6f7c 100%);
+        color: white;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.18),
+          0 1px 2px rgba(20, 40, 60, 0.18),
+          0 0 0 1px rgba(20, 40, 60, 0.12);
+      }
+      .btn-primary:hover {
+        transform: translateY(-1px);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.22),
+          0 6px 14px rgba(20, 40, 60, 0.18),
+          0 0 0 1px rgba(20, 40, 60, 0.16);
+      }
+      .btn-ghost {
+        background: var(--paper);
+        color: var(--ink);
+        box-shadow: var(--shadow-card);
+      }
+      .btn-ghost:hover {
+        transform: translateY(-1px);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.6),
+          0 6px 14px rgba(20, 40, 60, 0.1),
+          0 0 0 1px rgba(0, 0, 0, 0.06);
+      }
+      .btn-sm { height: 30px; padding: 0 10px; font-size: 13px; }
+
+      /* ─── Announcement strip ───────────────────────────────────────── */
+      .announce {
+        text-align: center;
+        font-size: 13px;
+        color: var(--muted);
+        padding: 22px 0 18px;
+      }
+      .announce a { color: var(--tide-deep); font-weight: 500; }
+      .announce a:hover { text-decoration: underline; }
+
+      /* ─── Hero ─────────────────────────────────────────────────────── */
+      .hero {
+        position: relative;
+        text-align: center;
+        padding: clamp(72px, 12vw, 140px) 0 clamp(64px, 9vw, 110px);
+        z-index: 1;
+      }
+      .hero h1 {
+        font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        font-weight: 700;
+        font-size: clamp(44px, 8vw, 96px);
+        line-height: 0.98;
+        letter-spacing: -0.045em;
+        margin: 0;
+        color: #0e2230;
+        font-feature-settings: "ss01", "cv11";
+        position: relative;
+      }
+      .hero h1 .accent {
+        display: inline-block;
+        color: var(--tide);
+        font-weight: 700;
+      }
+      .hero p.sub { position: relative; }
+      .hero-cta { position: relative; z-index: 2; }
+      .hero-meta { position: relative; }
+      .hero p.sub {
+        margin: 22px auto 0;
+        max-width: 560px;
+        color: var(--muted);
+        font-size: clamp(14.5px, 1.4vw, 17px);
+        line-height: 1.55;
+        padding: 0 16px;
+      }
+      .hero-cta {
+        margin-top: 36px;
+        display: inline-flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+      }
+      .hero-meta {
+        margin-top: 18px;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+
+      /* ─── Feature row ──────────────────────────────────────────────── */
+      .features {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0;
+      }
+      .features .col {
+        padding: 28px clamp(14px, 2.2vw, 28px);
+        border-right: 1px solid var(--grid-soft);
+      }
+      .features .col:last-child { border-right: 0; }
+      .features h3 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .features p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13.5px;
+        line-height: 1.55;
+      }
+
+      /* ─── App preview ──────────────────────────────────────────────── */
+      .preview-wrap {
+        padding: clamp(40px, 6vw, 72px) clamp(16px, 2.4vw, 32px);
+      }
+      .preview {
+        position: relative;
+        border-radius: 12px;
+        overflow: hidden;
+        background: var(--paper);
+        box-shadow: var(--shadow-lift);
+      }
+      .preview-chrome {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 36px;
+        padding: 0 12px;
+        background: linear-gradient(180deg, #fbfaf6 0%, #f3f1ec 100%);
+        border-bottom: 1px solid var(--border);
+      }
+      .preview-chrome .dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: #d6d6d6;
+      }
+      .preview-chrome .title {
+        margin-left: 12px;
+        font-size: 12px;
+        color: var(--muted);
+        font-family: "JetBrains Mono", monospace;
+      }
+
+      /* Animated GIF of the real Tide app — captured by
+         tests/e2e/landing-capture.spec.ts. */
+      .preview .product-gif {
+        display: block;
+        width: 100%;
+        height: auto;
+        background: #fbfaf6;
+      }
+
+      /* ─── Signals row ──────────────────────────────────────────────── */
+      .signals {
+        padding: clamp(28px, 4vw, 56px) clamp(16px, 2vw, 28px) clamp(40px, 6vw, 72px);
+        display: grid;
+        grid-template-columns: 1.4fr 1fr;
+        gap: 24px;
+      }
+      .panel {
+        background: var(--paper);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-card);
+        padding: clamp(16px, 2vw, 24px);
+      }
+      .panel h4 {
+        margin: 0 0 10px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .panel-title {
+        font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+        font-weight: 600;
+        font-size: clamp(20px, 2.2vw, 26px);
+        line-height: 1.2;
+        letter-spacing: -0.025em;
+        margin: 0 0 10px;
+        color: var(--tide-deep);
+      }
+      .panel-body {
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .shortcut-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px dashed var(--border);
+        font-size: 13px;
+      }
+      .shortcut-row:last-child { border-bottom: 0; }
+      .shortcut-row .keys { display: inline-flex; gap: 4px; }
+      .shortcut-row .keys .kbd { height: 22px; }
+
+      /* ─── Footer ──────────────────────────────────────────────────── */
+      footer {
+        padding: 32px clamp(16px, 2vw, 28px) 48px;
+        font-size: 12.5px;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      footer .links { display: flex; gap: clamp(12px, 1.6vw, 22px); flex-wrap: wrap; }
+
+      /* ─── Responsive ──────────────────────────────────────────────── */
+      /* Tablet: widen content well to 86% — strong rules follow to 7%. */
+      @media (max-width: 1024px) {
+        .wrap { width: 86%; }
+        .v-1, .v-5 { display: none; }
+        .v-2 { left: 7%; }
+        .v-4 { left: auto; right: 7%; }
+      }
+
+      /* Phone: 92% wide, hide vertical rules entirely. */
+      @media (max-width: 720px) {
+        .wrap { width: 92%; }
+        .v-2, .v-4 { display: none; }
+        .nav-links { display: none; }
+        .features { grid-template-columns: 1fr; }
+        .features .col {
+          border-right: 0;
+          border-bottom: 1px solid var(--grid-soft);
+        }
+        .features .col:last-child { border-bottom: 0; }
+        .signals { grid-template-columns: 1fr; }
+        .hero h1 { font-size: clamp(36px, 11vw, 56px); }
+      }
+
+      @media (max-width: 480px) {
+        .search { display: none; }
+        .nav { gap: 8px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <!-- Vertical grid lines — must live inside .page so they
+           stretch to its full height (all bands), not just the
+           viewport. -->
+      <div class="grid-bg" aria-hidden="true">
+        <span class="v v-1"></span>
+        <span class="v v-2"></span>
+        <span class="v v-4"></span>
+        <span class="v v-5"></span>
+      </div>
+      <!-- Nav band -->
+      <div class="band">
+        <div class="wrap">
+          <nav class="nav">
+            <a class="nav-brand" href="/">
+              <span class="mark" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M3 14c2-1.5 4-1.5 6 0s4 1.5 6 0 4-1.5 6 0M3 19c2-1.5 4-1.5 6 0s4 1.5 6 0 4-1.5 6 0"
+                    stroke="currentColor" stroke-width="1.6"
+                    stroke-linecap="round" stroke-linejoin="round"
+                  />
+                  <circle cx="12" cy="6" r="2" stroke="currentColor" stroke-width="1.6" />
+                </svg>
+              </span>
+              Tide
+            </a>
+            <div class="nav-links">
+              <a href="#features">Product</a>
+              <a href="#shortcuts">Shortcuts</a>
+              <a href="https://github.com">Source</a>
+              <a href="#download">Download</a>
+            </div>
+            <div class="nav-right">
+              <span class="search mono">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+                <span class="kbd">Ctrl</span><span class="kbd">K</span>
+              </span>
+              <a class="btn btn-primary btn-sm" href="./tide.zip" download>
+                Download <span class="kbd kbd-on-primary">D</span>
+              </a>
+            </div>
+          </nav>
+        </div>
+      </div>
+
+      <!-- Announcement -->
+      <div class="band band-soft">
+        <div class="wrap">
+          <div class="announce">
+            Introducing <a href="#features">Parallel repos →</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hero -->
+      <div class="band hero-band" id="download">
+        <div class="wrap">
+          <!-- Animated tide backdrop — clipped to the content well, not
+               the full viewport, so it sits between the strong vertical
+               grid rules and the gutters stay clean paper. -->
+          <div class="tide-bg" aria-hidden="true">
+            <div class="glow"></div>
+            <div class="surface"></div>
+            <svg class="wave wave-1" viewBox="0 0 1200 80" preserveAspectRatio="none">
+              <path
+                d="M0 40 Q 75 10 150 40 T 300 40 T 450 40 T 600 40 T 750 40 T 900 40 T 1050 40 T 1200 40"
+                fill="none" stroke="#4a7c8a" stroke-width="1.4" stroke-linecap="round"
+              />
+            </svg>
+            <svg class="wave wave-2" viewBox="0 0 1200 80" preserveAspectRatio="none">
+              <path
+                d="M0 40 Q 60 15 120 40 T 240 40 T 360 40 T 480 40 T 600 40 T 720 40 T 840 40 T 960 40 T 1080 40 T 1200 40"
+                fill="none" stroke="#4a7c8a" stroke-width="1.2" stroke-linecap="round"
+              />
+            </svg>
+            <svg class="wave wave-3" viewBox="0 0 1200 80" preserveAspectRatio="none">
+              <path
+                d="M0 40 Q 50 5 100 40 T 200 40 T 300 40 T 400 40 T 500 40 T 600 40 T 700 40 T 800 40 T 900 40 T 1000 40 T 1100 40 T 1200 40"
+                fill="none" stroke="#1a3a4a" stroke-opacity="0.55" stroke-width="1.2" stroke-linecap="round"
+              />
+            </svg>
+            <svg class="wave wave-4" viewBox="0 0 1200 80" preserveAspectRatio="none">
+              <path
+                d="M0 50 Q 40 25 80 50 T 160 50 T 240 50 T 320 50 T 400 50 T 480 50 T 560 50 T 640 50 T 720 50 T 800 50 T 880 50 T 960 50 T 1040 50 T 1120 50 T 1200 50 L1200 80 L0 80 Z"
+                fill="url(#tideFill)"
+              />
+              <defs>
+                <linearGradient id="tideFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#4a7c8a" stop-opacity="0.28"/>
+                  <stop offset="100%" stop-color="#1a3a4a" stop-opacity="0.2"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <section class="hero">
+            <h1>
+              File a ticket.<br />
+              <span class="accent">Ship the diff.</span>
+            </h1>
+            <p class="sub">
+              Tide is a Linear-style Kanban desktop app where Claude Code does
+              the implementation. Write the ticket — get a branch, a diff, and
+              a review tab.
+            </p>
+            <div class="hero-cta">
+              <a class="btn btn-primary" href="./tide.zip" download>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                Download for Windows
+                <span class="kbd kbd-on-primary">D</span>
+              </a>
+              <a class="btn btn-ghost" href="#">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+                </svg>
+                Clone source
+                <span class="kbd">C</span>
+              </a>
+            </div>
+            <div class="hero-meta">
+              Available for Windows 11. macOS &amp; Linux via dev-bridge mode.
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- Three feature columns -->
+      <div class="band" id="features">
+        <div class="wrap">
+          <section class="features">
+            <div class="col">
+              <h3>Sequential per repo</h3>
+              <p>
+                Each repo gets its own worker. Tickets flow Backlog → Queued →
+                In&nbsp;Progress one at a time so branches never collide.
+              </p>
+            </div>
+            <div class="col">
+              <h3>Parallel across repos</h3>
+              <p>
+                Multiple repos run in parallel. Watch the live stream, jump
+                with <span class="kbd">⌘P</span>, drop into Review the
+                moment a diff lands.
+              </p>
+            </div>
+            <div class="col">
+              <h3>Iterate, don't restart</h3>
+              <p>
+                <span class="kbd">⌘E</span> resumes the Claude session with
+                new instructions — your branch and context survive.
+              </p>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- App preview — animated GIF captured from the real running app
+           by tests/e2e/landing-capture.spec.ts. Regenerate with:
+           bun playwright test tests/e2e/landing-capture.spec.ts -->
+      <div class="band">
+        <div class="wrap">
+          <section class="preview-wrap">
+            <div class="preview">
+              <div class="preview-chrome">
+                <span class="dot" style="background:#ed6a5e"></span>
+                <span class="dot" style="background:#f4bf4f"></span>
+                <span class="dot" style="background:#61c554"></span>
+                <span class="title">tide — board</span>
+              </div>
+              <img
+                class="product-gif"
+                src="./demo.gif"
+                alt="Tide board — Kanban columns with rising water levels and live ticket transitions"
+                loading="lazy"
+                width="1680"
+                height="900"
+              />
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- Signals -->
+      <div class="band" id="shortcuts">
+        <div class="wrap">
+          <section class="signals">
+            <div class="panel">
+              <h4>Why Tide</h4>
+              <p class="panel-title">The board moves while you sleep.</p>
+              <p class="panel-body">
+                Tide auto-stashes your dirty working tree before a run, spins
+                up Claude Code on a fresh branch, and hands you back a clean
+                review tab. Merge, change-more, or discard — your call.
+              </p>
+            </div>
+            <div class="panel">
+              <h4>Shortcuts</h4>
+              <div class="shortcut-row">
+                <span>Create ticket</span>
+                <span class="keys"><span class="kbd">C</span></span>
+              </div>
+              <div class="shortcut-row">
+                <span>Command palette</span>
+                <span class="keys"><span class="kbd">⌘</span><span class="kbd">K</span></span>
+              </div>
+              <div class="shortcut-row">
+                <span>Quick switcher</span>
+                <span class="keys"><span class="kbd">⌘</span><span class="kbd">P</span></span>
+              </div>
+              <div class="shortcut-row">
+                <span>Change more (resume)</span>
+                <span class="keys"><span class="kbd">⌘</span><span class="kbd">E</span></span>
+              </div>
+              <div class="shortcut-row">
+                <span>Merge / Discard</span>
+                <span class="keys"><span class="kbd">M</span><span class="kbd">D</span></span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="band-soft">
+        <div class="wrap">
+          <footer>
+            <span>© 2026 Tide. A workspace for Claude Code.</span>
+            <span class="links">
+              <a href="#">Changelog</a>
+              <a href="#">Docs</a>
+              <a href="#">Privacy</a>
+              <a href="https://github.com">GitHub</a>
+            </span>
+          </footer>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
